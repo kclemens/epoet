@@ -295,7 +295,295 @@ class PoetryIndex(object):
 
         return Word.choice(words)
 
+    def get_word_variants(self, text):
+        return self.assemble_from_db('where text = ?', (text.lower(),))
+
+class PoemPatternLearner(object):
+    def __init__(self, index, text):
+        self.index = index
+        self.line_type_counts = {
+            0: collections.Counter(),
+            1: collections.Counter(),
+            2: collections.Counter(),
+            3: collections.Counter(),
+            4: collections.Counter(),
+            5: collections.Counter(),
+            6: collections.Counter(),
+            7: collections.Counter(),
+            8: collections.Counter(),
+            9: collections.Counter(),
+        }
+
+        self.line_count = self.empty_count = self.comment_count = self.token_count = 0
+        for line in text:
+            self.process_line(line)
+
+        logging.info('parsed %s lines (skipped %s empties and %s comments) and %s tokens',
+                     self.line_count, self.empty_count, self.comment_count, self.token_count)
+
+    @classmethod
+    def all_combinations(cls, list_of_iterables):
+        """
+        recursive method for traversing lists of iterables
+
+        iterables may not be empty
+
+        yields every possible path through the list whith each path touching one element from each iterable
+        """
+        if len(list_of_iterables) == 1:
+            for element in list_of_iterables[0]:
+                yield [element]
+        else:
+            for element in list_of_iterables[0]:
+                for suffix in cls.all_combinations(list_of_iterables[1:]):
+                    yield [element] + suffix
+
+    @classmethod
+    def all_combinations_count(cls, list_of_iterables):
+        count = 1
+        for iterable in list_of_iterables:
+            count *= len(iterable)
+        return count
+
+    def process_line(self, line):
+        self.line_count += 1
+
+        if line[0] == '#':
+            self.comment_count += 1
+            return
+
+        line = line.strip()
+        words = re.findall('[\w\']+', line)
+
+        if not words:
+            self.empty_count += 1
+            return
+
+        logging.info('on line %d processing %d tokens: %s', self.line_count, len(words), line)
+
+        # count tokens for stats
+        self.token_count += len(words)
+
+        # replace each token with possible word variants
+        # line is a list of lists; inner lists hold word variants (sound, stress, and type variants) for each token
+        words = list(map(lambda token: list(self.index.get_word_variants(token)), words))
+
+        # do not proceed if a word is not known
+        for word_variant_list in words:
+            if not word_variant_list:
+                return
+
+        # collect word types
+        types = map(lambda word_variant_list: map(lambda word: word.types, word_variant_list), words)
+        types = map(lambda type_variants_lists: sum(type_variants_lists, list()), types)
+        types = list(map(set, types))
+        if self.all_combinations_count(types) < 1000000:
+            word_count = len(types) if len(types) < 10 else 0
+            types = self.all_combinations(types)
+            types = map(lambda type_combination: '-'.join(type_combination), types)
+            self.line_type_counts[word_count].update(types)
+        else:
+            logging.warning('too many word type combinations in line %s. skipping it as source for valid types.', line)
+
+        logging.debug('processed %d line with %d tokens: %s', self.line_count, len(words), line)
+
+    def __repr__(self):
+        result = '    line_patterns = {\n'
+        for token_count in range(1, 10):
+            result += '        {:d}: [  # {:d} cases\n'.format(token_count, sum(self.line_type_counts[token_count].values()))
+            for token_type_list, count in self.line_type_counts[token_count].most_common(20):
+                result += '            [\'{:s}\'],  # {:d} occurrences \n'.format('\', \''.join(token_type_list.split('-')), count)
+            result += '        ],\n'
+        result += '    }\n'
+
+        return result
+
 class Poem(object):
+
+    # collected using PoemPatternLearner
+    line_patterns = {
+        1: [  # 2 cases
+            ['verb'],  # 1 occurrences
+            ['noun'],  # 1 occurrences
+        ],
+        2: [  # 54 cases
+            ['adjective', 'noun'],  # 8 occurrences
+            ['noun', 'noun'],  # 7 occurrences
+            ['verb', 'noun'],  # 7 occurrences
+            ['noun', 'adjective'],  # 3 occurrences
+            ['adjective', 'adjective'],  # 3 occurrences
+            ['pronoun', 'noun'],  # 2 occurrences
+            ['adverb', 'noun'],  # 2 occurrences
+            ['verb', 'adjective'],  # 2 occurrences
+            ['noun', 'adverb'],  # 1 occurrences
+            ['verb', 'adverb'],  # 1 occurrences
+            ['pronoun', 'adjective'],  # 1 occurrences
+            ['determiner', 'noun'],  # 1 occurrences
+            ['pronoun', 'adverb'],  # 1 occurrences
+            ['determiner', 'adjective'],  # 1 occurrences
+            ['preposition', 'noun'],  # 1 occurrences
+            ['adjective', 'verb'],  # 1 occurrences
+            ['adverb', 'verb'],  # 1 occurrences
+            ['preposition', 'verb'],  # 1 occurrences
+            ['adverb', 'adverb'],  # 1 occurrences
+            ['postposition', 'adverb'],  # 1 occurrences
+        ],
+        3: [  # 1286 cases
+            ['noun', 'noun', 'noun'],  # 26 occurrences
+            ['verb', 'noun', 'noun'],  # 24 occurrences
+            ['verb', 'adverb', 'noun'],  # 23 occurrences
+            ['verb', 'adjective', 'noun'],  # 21 occurrences
+            ['noun', 'adjective', 'noun'],  # 21 occurrences
+            ['noun', 'adverb', 'noun'],  # 19 occurrences
+            ['noun', 'noun', 'verb'],  # 19 occurrences
+            ['verb', 'noun', 'verb'],  # 18 occurrences
+            ['noun', 'adverb', 'verb'],  # 17 occurrences
+            ['noun', 'verb', 'noun'],  # 17 occurrences
+            ['verb', 'adverb', 'verb'],  # 17 occurrences
+            ['adverb', 'noun', 'noun'],  # 17 occurrences
+            ['noun', 'adjective', 'verb'],  # 16 occurrences
+            ['verb', 'determiner', 'noun'],  # 16 occurrences
+            ['adverb', 'adjective', 'noun'],  # 16 occurrences
+            ['noun', 'verb', 'verb'],  # 15 occurrences
+            ['verb', 'adjective', 'verb'],  # 15 occurrences
+            ['verb', 'verb', 'noun'],  # 15 occurrences
+            ['adverb', 'adverb', 'noun'],  # 15 occurrences
+            ['noun', 'determiner', 'noun'],  # 14 occurrences
+        ],
+        4: [  # 10228 cases
+            ['noun', 'noun', 'noun', 'noun'],  # 37 occurrences
+            ['noun', 'noun', 'noun', 'verb'],  # 34 occurrences
+            ['noun', 'verb', 'noun', 'verb'],  # 34 occurrences
+            ['noun', 'verb', 'noun', 'noun'],  # 33 occurrences
+            ['noun', 'noun', 'verb', 'noun'],  # 30 occurrences
+            ['adverb', 'noun', 'noun', 'verb'],  # 29 occurrences
+            ['noun', 'verb', 'adverb', 'noun'],  # 29 occurrences
+            ['adverb', 'noun', 'noun', 'noun'],  # 29 occurrences
+            ['noun', 'noun', 'adverb', 'noun'],  # 29 occurrences
+            ['adverb', 'noun', 'verb', 'noun'],  # 27 occurrences
+            ['noun', 'verb', 'verb', 'noun'],  # 27 occurrences
+            ['adverb', 'verb', 'noun', 'verb'],  # 27 occurrences
+            ['noun', 'verb', 'adverb', 'verb'],  # 27 occurrences
+            ['verb', 'noun', 'noun', 'noun'],  # 26 occurrences
+            ['noun', 'noun', 'verb', 'verb'],  # 26 occurrences
+            ['noun', 'verb', 'verb', 'verb'],  # 26 occurrences
+            ['noun', 'adverb', 'noun', 'noun'],  # 26 occurrences
+            ['noun', 'noun', 'adverb', 'verb'],  # 25 occurrences
+            ['adverb', 'verb', 'noun', 'noun'],  # 25 occurrences
+            ['verb', 'noun', 'verb', 'noun'],  # 24 occurrences
+        ],
+        5: [  # 38133 cases
+            ['adverb', 'noun', 'noun', 'noun', 'noun'],  # 32 occurrences
+            ['verb', 'noun', 'noun', 'noun', 'noun'],  # 31 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'verb'],  # 28 occurrences
+            ['noun', 'noun', 'verb', 'noun', 'noun'],  # 28 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'noun'],  # 27 occurrences
+            ['adverb', 'noun', 'verb', 'noun', 'verb'],  # 27 occurrences
+            ['adverb', 'noun', 'verb', 'noun', 'noun'],  # 27 occurrences
+            ['adverb', 'noun', 'noun', 'verb', 'verb'],  # 25 occurrences
+            ['noun', 'noun', 'verb', 'noun', 'verb'],  # 24 occurrences
+            ['adverb', 'determiner', 'noun', 'noun', 'noun'],  # 24 occurrences
+            ['adverb', 'adjective', 'noun', 'noun', 'noun'],  # 24 occurrences
+            ['noun', 'verb', 'verb', 'noun', 'noun'],  # 23 occurrences
+            ['verb', 'noun', 'verb', 'noun', 'noun'],  # 23 occurrences
+            ['verb', 'noun', 'noun', 'verb', 'noun'],  # 23 occurrences
+            ['noun', 'verb', 'noun', 'noun', 'noun'],  # 23 occurrences
+            ['adverb', 'noun', 'noun', 'verb', 'noun'],  # 23 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb'],  # 23 occurrences
+            ['verb', 'adjective', 'noun', 'noun', 'noun'],  # 22 occurrences
+            ['adverb', 'noun', 'verb', 'verb', 'verb'],  # 22 occurrences
+            ['verb', 'noun', 'verb', 'verb', 'noun'],  # 22 occurrences
+        ],
+        6: [  # 280978 cases
+            ['noun', 'noun', 'noun', 'verb', 'noun', 'noun'],  # 53 occurrences
+            ['adverb', 'noun', 'noun', 'verb', 'noun', 'noun'],  # 50 occurrences
+            ['noun', 'noun', 'noun', 'verb', 'adverb', 'noun'],  # 49 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'noun', 'noun'],  # 49 occurrences
+            ['noun', 'noun', 'noun', 'verb', 'noun', 'verb'],  # 47 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'noun', 'noun'],  # 46 occurrences
+            ['adverb', 'noun', 'noun', 'verb', 'adverb', 'noun'],  # 46 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'noun', 'verb'],  # 45 occurrences
+            ['adverb', 'noun', 'noun', 'verb', 'noun', 'verb'],  # 45 occurrences
+            ['noun', 'noun', 'noun', 'verb', 'adjective', 'noun'],  # 44 occurrences
+            ['verb', 'noun', 'noun', 'verb', 'noun', 'noun'],  # 44 occurrences
+            ['noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 44 occurrences
+            ['verb', 'noun', 'noun', 'noun', 'noun', 'noun'],  # 43 occurrences
+            ['noun', 'noun', 'noun', 'verb', 'adverb', 'verb'],  # 43 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'adverb', 'noun'],  # 43 occurrences
+            ['noun', 'adverb', 'noun', 'verb', 'noun', 'noun'],  # 42 occurrences
+            ['noun', 'noun', 'noun', 'adverb', 'noun', 'noun'],  # 42 occurrences
+            ['adverb', 'adverb', 'noun', 'verb', 'noun', 'noun'],  # 41 occurrences
+            ['verb', 'noun', 'noun', 'noun', 'noun', 'verb'],  # 41 occurrences
+            ['adverb', 'noun', 'noun', 'verb', 'adverb', 'verb'],  # 41 occurrences
+        ],
+        7: [  # 671728 cases
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'noun', 'noun'],  # 38 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'noun', 'verb'],  # 37 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'verb', 'noun', 'noun'],  # 35 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'noun', 'noun', 'noun'],  # 35 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'noun', 'noun', 'verb'],  # 34 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'verb', 'noun', 'verb'],  # 34 occurrences
+            ['noun', 'noun', 'noun', 'verb', 'noun', 'noun', 'noun'],  # 33 occurrences
+            ['noun', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 32 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'noun', 'noun', 'noun'],  # 32 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'adverb', 'verb'],  # 31 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'noun', 'noun', 'verb'],  # 31 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'adverb', 'noun', 'noun'],  # 30 occurrences
+            ['adverb', 'noun', 'noun', 'verb', 'noun', 'noun', 'noun'],  # 30 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'adverb', 'noun'],  # 30 occurrences
+            ['noun', 'noun', 'noun', 'verb', 'verb', 'noun', 'verb'],  # 29 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'noun', 'adverb', 'verb'],  # 29 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'noun', 'adverb', 'noun'],  # 29 occurrences
+            ['adverb', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 29 occurrences
+            ['noun', 'noun', 'noun', 'verb', 'noun', 'noun', 'verb'],  # 29 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'verb', 'adverb', 'verb'],  # 28 occurrences
+        ],
+        8: [  # 1045084 cases
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 8 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'noun', 'verb', 'noun', 'noun'],  # 8 occurrences
+            ['noun', 'noun', 'adverb', 'noun', 'verb', 'verb', 'adverb', 'noun'],  # 8 occurrences
+            ['noun', 'noun', 'adverb', 'noun', 'noun', 'adverb', 'adverb', 'noun'],  # 8 occurrences
+            ['noun', 'noun', 'adverb', 'noun', 'noun', 'verb', 'adverb', 'noun'],  # 8 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'verb', 'adverb', 'noun'],  # 8 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'adverb', 'adverb', 'noun'],  # 8 occurrences
+            ['noun', 'noun', 'adverb', 'noun', 'verb', 'adverb', 'adverb', 'noun'],  # 8 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'adverb', 'noun', 'noun'],  # 8 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'noun', 'adverb', 'noun', 'noun'],  # 8 occurrences
+            ['verb', 'adverb', 'adverb', 'noun', 'verb', 'adverb', 'adverb', 'noun'],  # 7 occurrences
+            ['noun', 'noun', 'adverb', 'noun', 'noun', 'adverb', 'noun', 'noun'],  # 7 occurrences
+            ['noun', 'noun', 'adverb', 'noun', 'verb', 'noun', 'adverb', 'noun'],  # 7 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'adverb', 'adverb', 'verb'],  # 7 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'adverb', 'noun', 'verb'],  # 7 occurrences
+            ['noun', 'adverb', 'noun', 'noun', 'noun', 'adverb', 'noun', 'noun'],  # 7 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'noun', 'adverb', 'adverb', 'noun'],  # 7 occurrences
+            ['noun', 'noun', 'adverb', 'noun', 'verb', 'noun', 'adverb', 'verb'],  # 7 occurrences
+            ['adverb', 'noun', 'adverb', 'noun', 'noun', 'verb', 'adverb', 'noun'],  # 7 occurrences
+            ['verb', 'adverb', 'noun', 'noun', 'noun', 'adverb', 'noun', 'noun'],  # 7 occurrences
+        ],
+        9: [  # 1694832 cases
+            ['noun', 'noun', 'noun', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'verb', 'adverb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['noun', 'noun', 'verb', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['noun', 'noun', 'verb', 'noun', 'adverb', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'preposition', 'noun', 'noun', 'noun'],  # 6 occurrences
+            ['verb', 'noun', 'noun', 'verb', 'adverb', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'adverb', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'adverb', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'adverb', 'noun', 'noun', 'noun'],  # 6 occurrences
+            ['adverb', 'adverb', 'verb', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['adverb', 'noun', 'verb', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['noun', 'adverb', 'verb', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'verb', 'adverb', 'noun', 'noun', 'noun'],  # 6 occurrences
+            ['adverb', 'noun', 'verb', 'noun', 'adverb', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['adverb', 'noun', 'noun', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['pronoun', 'noun', 'verb', 'noun', 'adverb', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'adverb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['noun', 'adverb', 'noun', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['noun', 'noun', 'noun', 'noun', 'verb', 'preposition', 'verb', 'noun', 'noun'],  # 6 occurrences
+            ['adverb', 'adverb', 'noun', 'noun', 'noun', 'verb', 'verb', 'noun', 'noun'],  # 6 occurrences
+        ],
+    }
+
     @classmethod
     def limmerick(cls, title, index):
         return cls(
@@ -371,6 +659,7 @@ if __name__ == '__main__':
     # index.load_words(Word.from_file(Phones.from_file(), facade))
     # print facade
 
+    print PoemPatternLearner(index, open('poems.txt'))
 
 
     # import sys
@@ -384,7 +673,7 @@ if __name__ == '__main__':
     # index = PoetryIndex()
     # index.re_load_words(Word.from_file(Phones.from_file()))
 
-    print Poem('the void', index)
-    print Poem.limmerick('limeric', index)
+    # print Poem('the void', index)
+    # print Poem.limmerick('limeric', index)
 
 
