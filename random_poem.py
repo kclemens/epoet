@@ -184,22 +184,17 @@ class Word(object):
         first_quarter = min_complexity + complexity_quarter_width
         second_quarter = first_quarter + complexity_quarter_width
 
-        # words with complexity in the lowest quarter
-        easy_words = list(filter(lambda word: word.complexity <= first_quarter, words))
+        easy_words = list(filter(lambda word: word.complexity < first_quarter, words))
+        easy_and_medium_words = list(filter(lambda word: word.complexity < second_quarter, words))
+        all_words = words
 
-        # words with complexity in the second quarter
-        medium_words = list(filter(lambda word: first_quarter < word.complexity <= second_quarter, words))
-
-        # words with complexity in the second half
-        complex_words = list(filter(lambda word: word.complexity > second_quarter, words))
-
-        classes = [easy_words, medium_words, complex_words]
-        distributions = [.8, 1, 1]
+        classes = [easy_words, easy_and_medium_words, words]
+        distributions = [.7, .8, 1.0]
 
         choice = random.random()
 
         for i, threshold in enumerate(distributions):
-            if choice <= threshold and classes[i]:
+            if choice < threshold and classes[i]:
                 return random.choice(classes[i])
 
         logging.warning('could not return word')
@@ -208,9 +203,9 @@ class Word(object):
         logging.warning('got max complexity %s', max_complexity)
         logging.warning('got first complexity quarter threshold %s', first_quarter)
         logging.warning('got second complexity quarter threshold %s', second_quarter)
-        logging.warning('got %s words in easy class', len(complex_words))
-        logging.warning('got %s words in medium class', len(medium_words))
-        logging.warning('got %s words in complex class', len(complex_words))
+        logging.warning('got %s words in easy class', len(easy_words))
+        logging.warning('got %s words in medium class', len(easy_and_medium_words))
+        logging.warning('got %s words in all class', len(words))
         logging.warning('got threshold %s and choice %s', distributions, choice)
         raise Exception('something went wrong when chosing a word!')
 
@@ -585,20 +580,20 @@ class Poem(object):
     }
 
     @classmethod
-    def limmerick(cls, title, index):
-        return cls(
-            title,
-            index,
+    def limmerick(cls, index):
+        return cls(index,
             'A -^--^--^ 3:6\n' +
             'A -^--^--^ 3:6\n' +
             'B -^--^- 2:4\n' +
             'B -^--^- 2:4\n' +
-            'A -^--^--^ 3:6'
+            'A -^--^--^ 3:6\n'
         )
 
-    def __init__(self, title, index, pattern='A -^--^--^--^ 2:8\nB -^--^--^ 1:3\nA -^--^--^--^ 2:8\nB -^--^--^ 1:3', tries=10):
-        self.title = title
-        self.lines = list()
+    def __init__(self, index, pattern='A -^--^--^--^ 2:8\nB -^--^--^ 1:3\nA -^--^--^--^ 2:8\nB -^--^--^ 1:3\n', tries_per_line=50):
+        self.pattern = pattern
+        self.lines = ''
+        self.stresses = ''
+        self.types = ''
 
         def splits(to_split, split_count):
             if split_count == 1:
@@ -613,43 +608,49 @@ class Poem(object):
                 for split in splits(to_split, count):
                     yield split
 
+        def generate_line(word_stresses, word_types, line_rhyme):
+            words = list()
+
+            i = 0
+            for i in range(len(word_stresses) - 1):
+                word = index.get_random_word(word_stresses[i], word_types[i])
+                if not word:
+                    return None
+                words.append(word)
+
+            word = index.get_random_word(word_stresses[i + 1], word_types[i + 1], line_rhyme)
+            if not word:
+                return None
+            words.append(word)
+            return words
+
         rhymes = dict()
-        for line in pattern.split('\n'):
+        for line in pattern.strip().split('\n'):
             line_rhyme, line_stress, line_words = line.split(' ')
             min_words, max_words = map(int, line_words.split(':'))
 
+            tries = tries_per_line
             while True:
-
                 tries -= 1
                 if not tries:
-                    logging.warn('could not generate line %s', line)
-                    logging.warn('have words     : %s', line)
-                    logging.warn('required rhyme : %s', rhymes.get(line_rhyme))
-                    logging.warn('required stress: %s', word_stress)
-                    logging.warn('last word      : %s', word_index == len(word_stresses))
+                    raise Exception('could not generate line')
 
-                line = list()
                 word_stresses = random.choice(list(splits_variant(line_stress, min_words, max_words)))
-                for word_index, word_stress in enumerate(word_stresses, 1):
-                    if word_index < len(word_stresses):
-                        word = index.get_random_word(word_stress)
-                        if not word:
-                            continue
-                        line.append(word.text)
-                    else:
-                        word = index.get_random_word(word_stress, rhyme=rhymes.get(line_rhyme))
-                        if not word:
-                            continue
-                        rhymes[line_rhyme] = word.rhyme
-                        line.append(word.text)
-                break
+                word_types = random.choice(self.line_patterns[len(word_stresses)])
+                words = generate_line(word_stresses, word_types, rhymes.get(line_rhyme))
 
-            self.lines.append(' '.join(line))
+                if not words:
+                    continue
+                else:
+                    rhymes[line_rhyme] = words[-1].rhyme
+
+                    self.lines += ' '.join(map(lambda word: word.text, words)) + '\n'
+                    self.stresses += ' '.join(word_stresses) + '\n'
+                    self.types += ' '.join(word_types) + '\n'
+                    break
 
     def __repr__(self):
-        result = '  {} - a poem by {}\n---\n'.format(self.title, socket.gethostname())
-        result += '\n'.join(self.lines)
-        return result
+        return self.lines
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)7s - %(message)s')
@@ -659,7 +660,7 @@ if __name__ == '__main__':
     # index.load_words(Word.from_file(Phones.from_file(), facade))
     # print facade
 
-    print PoemPatternLearner(index, open('poems.txt'))
+    # print PoemPatternLearner(index, open('poems.txt'))
 
 
     # import sys
@@ -673,7 +674,11 @@ if __name__ == '__main__':
     # index = PoetryIndex()
     # index.re_load_words(Word.from_file(Phones.from_file()))
 
-    # print Poem('the void', index)
-    # print Poem.limmerick('limeric', index)
-
-
+    print Poem.limmerick(index)
+    print
+    print
+    print Poem(index)
+    print
+    print Poem(index)
+    print
+    print Poem(index)
