@@ -178,7 +178,6 @@ class Word(object):
         # return random.choice(words)
 
         # pick most simple words with higher probability
-
         max_complexity = max(map(lambda word: word.complexity, words))
         min_complexity = min(map(lambda word: word.complexity, words))
         complexity_quarter_width = (max_complexity - min_complexity) / 4.0
@@ -195,7 +194,7 @@ class Word(object):
         complex_words = list(filter(lambda word: word.complexity > second_quarter, words))
 
         classes = [easy_words, medium_words, complex_words]
-        distributions = [.5, .8, 1]
+        distributions = [.8, 1, 1]
 
         choice = random.random()
 
@@ -284,9 +283,6 @@ class PoetryIndex(object):
                     word.types.append(row[5])
             yield word
 
-    def get_word_variants(self, word_text):
-        return self.assemble_from_db('where text = ?', (word_text.lower(),))
-
     def get_random_word(self, stress, word_type=None, rhyme=None):
         if not word_type and not rhyme:
             words = self.assemble_from_db('where stress = ?', (stress,))
@@ -297,129 +293,7 @@ class PoetryIndex(object):
         else:
             words = self.assemble_from_db('where stress = ? and rhyme = ? and type = ?', (stress, rhyme, word_type))
 
-        return Word.choice(words)[0]
-
-    def next_word(self, stress):
-        stresses = [stress[:i] for i in range(1, len(stress) - 1)]
-        logging.debug('fetching words for %s possible stress prefixes from requested stress %s', len(stresses), stress)
-        words = self.connection.execute('''
-            select text, rhyme, stress, complexity, sound
-            from word
-            where stress in (%s)
-            ''' % ','.join('?' * len(stresses)), stresses)
-        words = map(lambda params:Word(*params), words)
-        logging.debug('fetched and parsed %s words', len(words))
         return Word.choice(words)
-
-    def last_word(self, stress, rhyme_word=None):
-        if rhyme_word:
-            logging.debug('fetching word for stress %s rhyming with %s', stress, rhyme_word.text)
-            words = self.connection.execute('''
-                select text, rhyme, stress, complexity, sound
-                from word
-                where stress = ?
-                and rhyme = ?
-                and text <> ?''', (stress, rhyme_word.rhyme, rhyme_word.text))
-        else:
-            logging.debug('fetching word for stress %s and any rhyme', stress)
-            words = self.connection.execute('''
-                select text, rhyme, stress, complexity, sound
-                from word
-                where stress = ?''', (stress,))
-        words = map(lambda params:Word(*params), words)
-        logging.debug('fetched and parsed %s words', len(words))
-        return Word.choice(words)
-
-class PoemPattern(object):
-    def __init__(self, index, text):
-        self.line_stress_counts = collections.Counter()
-        self.line_stress_lengths = collections.defaultdict(list)
-        self.line_type_counts = collections.Counter()
-
-        self.line_count = self.empty_count = self.comment_count = self.token_count = 0
-        for line in text:
-            self.process_line(line)
-
-        logging.info('parsed %s lines (skipped %s empties and %s comments) and %s tokens',
-                     self.line_count, self.empty_count, self.comment_count, self.token_count)
-        logging.info('got %s line stresses:', sum(self.line_stress_counts.itervalues()))
-        for stress, count in self.line_stress_counts.most_common(20):
-            logging.info('%5d : %s', count, stress)
-        logging.info('got %s line types:', sum(self.line_type_counts.itervalues()))
-        for word_type, count in self.line_type_counts.most_common(20):
-            logging.info('%5d : %s', count, word_type)
-
-    @classmethod
-    def all_combinations(cls, list_of_iterables):
-        """
-        recursive method for traversing lists of iterables
-
-        iterables may not be empty
-
-        yields every possible path through the list whith each path touching one element from each iterable
-        """
-        if len(list_of_iterables) == 1:
-            for element in list_of_iterables[0]:
-                yield [element]
-        else:
-            for element in list_of_iterables[0]:
-                for suffix in cls.all_combinations(list_of_iterables[1:]):
-                    yield [element] + suffix
-
-    @classmethod
-    def all_combinations_count(cls, list_of_iterables):
-        count = 1
-        for iterable in list_of_iterables:
-            count *= len(iterable)
-        return count
-
-    def process_line(self, line):
-        self.line_count += 1
-
-        if line[0] == '#':
-            self.comment_count += 1
-            return
-
-        line = line.strip()
-        words = re.findall('[\w\']+', line)
-
-        if not words:
-            self.empty_count += 1
-            return
-
-        logging.info('on line %d processing %d tokens: %s', self.line_count, len(words), line)
-
-        # count tokens for stats
-        self.token_count += len(words)
-
-        # replace each token with possible word variants
-        # line is a list of lists; inner lists hold word variants (sound, stress, and type variants) for each token
-        words = list(map(lambda token: list(index.get_word_variants(token)), words))
-
-        # do not proceed if a word is not known
-        for word_variant_list in words:
-            if not word_variant_list:
-                return
-
-        # collect stresses
-        stresses = map(lambda word_variant_list: map(lambda word: word.stress, word_variant_list), words)
-        stresses = map(set, stresses)
-        stresses = self.all_combinations(stresses)
-        stresses = map(lambda combination: ''.join(combination), stresses)
-        self.line_stress_counts.update(stresses)
-
-        # collect word types
-        types = map(lambda word_variant_list: map(lambda word: word.types, word_variant_list), words)
-        types = map(lambda type_variants_lists: sum(type_variants_lists, list()), types)
-        types = map(set, types)
-        if self.all_combinations_count(list(types)) < 1000:
-            types = self.all_combinations(types)
-            types = map(lambda type_combination: '-'.join(type_combination), types)
-            self.line_type_counts.update(types)
-        else:
-            logging.warning('too many word type combinations in line %s. skipping it as source for valid types.', line)
-
-        logging.debug('processed %d line with %d tokens: %s', self.line_count, len(words), line)
 
 class Poem(object):
     @classmethod
@@ -427,70 +301,66 @@ class Poem(object):
         return cls(
             title,
             index,
-            'A-^--^--^ '
-            'A-^--^--^ '
-            'B-^--^- '
-            'B-^--^- '
-            'A-^--^--^ '
+            'A -^--^--^ 3:6\n' +
+            'A -^--^--^ 3:6\n' +
+            'B -^--^- 2:4\n' +
+            'B -^--^- 2:4\n' +
+            'A -^--^--^ 3:6'
         )
 
-    def __init__(self, title, index, patterns='A-^--^--^--^ B-^--^--^ A-^--^--^--^ B-^--^--^'):
+    def __init__(self, title, index, pattern='A -^--^--^--^ 2:8\nB -^--^--^ 1:3\nA -^--^--^--^ 2:8\nB -^--^--^ 1:3', tries=10):
         self.title = title
+        self.lines = list()
 
-        def lines(patterns, rhymes, poem):
-            rhyme, stress = patterns[0][0], patterns[0][1:]
-            stress_length = float(len(stress))
-            line = list()
-
-            while len(stress)/stress_length > .33:
-                # fill at least two two thirds of the remaining stress with non-rhyme words
-                next_word = index.next_word(stress)
-
-                if not next_word:
-                    # anbort if no next word
-                    logging.warning('could not find next word!')
-                    logging.warning('for pattern     %s', patterns[0])
-                    logging.warning('reuqired stress %s', stress)
-                    logging.warning('have so far     %s', map(lambda word:word.text, line))
-                    logging.warning('have so far     %s', map(lambda word:word.stress, line))
-                    return None
-                else:
-                    line.append(next_word)
-                    stress = stress[len(next_word.stress):]
-
-            next_word = index.last_word(stress, rhymes.get(rhyme))
-            if not next_word:
-                logging.debug('failed to generate line "%s"', line)
-                logging.debug('got so far: %s', ' '.join(map(lambda x:x.text, line)))
-                logging.debug('required rhyme: %s', rhymes.get(rhyme))
-                logging.debug('remaining stress: %s', stress)
-                return None
+        def splits(to_split, split_count):
+            if split_count == 1:
+                yield [to_split]
             else:
-                line.append(next_word)
-                rhymes[rhyme] = next_word
-                logging.debug('got next line: %s', map(lambda word:word.text, line))
+                for i in range(1, len(to_split)):
+                    for suffix in splits(to_split[i:], split_count - 1):
+                        yield [to_split[:i]] + list(suffix)
 
-                if len(patterns) == 1:
-                    poem.append(line)
-                    return poem
+        def splits_variant(to_split, min_count, max_count):
+            for count in range(min_count, max_count + 1):
+                for split in splits(to_split, count):
+                    yield split
 
-                next_lines = lines(patterns[1:], rhymes, poem)
+        rhymes = dict()
+        for line in pattern.split('\n'):
+            line_rhyme, line_stress, line_words = line.split(' ')
+            min_words, max_words = map(int, line_words.split(':'))
 
-                if not next_lines:
-                    return lines(patterns, rhymes, poem)
+            while True:
 
-                else:
-                    return [line] + next_lines
+                tries -= 1
+                if not tries:
+                    logging.warn('could not generate line %s', line)
+                    logging.warn('have words     : %s', line)
+                    logging.warn('required rhyme : %s', rhymes.get(line_rhyme))
+                    logging.warn('required stress: %s', word_stress)
+                    logging.warn('last word      : %s', word_index == len(word_stresses))
 
-        self.lines = lines(patterns.split(), dict(), list())
+                line = list()
+                word_stresses = random.choice(list(splits_variant(line_stress, min_words, max_words)))
+                for word_index, word_stress in enumerate(word_stresses, 1):
+                    if word_index < len(word_stresses):
+                        word = index.get_random_word(word_stress)
+                        if not word:
+                            continue
+                        line.append(word.text)
+                    else:
+                        word = index.get_random_word(word_stress, rhyme=rhymes.get(line_rhyme))
+                        if not word:
+                            continue
+                        rhymes[line_rhyme] = word.rhyme
+                        line.append(word.text)
+                break
+
+            self.lines.append(' '.join(line))
 
     def __repr__(self):
         result = '  {} - a poem by {}\n---\n'.format(self.title, socket.gethostname())
-        for line in self.lines:
-            for word in line:
-                result += word.text + ' '
-            result += '\n'
-        result += '---\n  {}'.format(time.strftime('%B %Y'))
+        result += '\n'.join(self.lines)
         return result
 
 if __name__ == '__main__':
@@ -498,11 +368,10 @@ if __name__ == '__main__':
 
     # facade = WictionaryFacade()
     index = PoetryIndex()
-
     # index.load_words(Word.from_file(Phones.from_file(), facade))
     # print facade
 
-    PoemPattern(index, open('poems.txt'))
+
 
     # import sys
     # if len(sys.argv) > 1:
@@ -515,7 +384,7 @@ if __name__ == '__main__':
     # index = PoetryIndex()
     # index.re_load_words(Word.from_file(Phones.from_file()))
 
-    # print Poem('the void', index)
-    # print Poem.limmerick('limeric', index)
+    print Poem('the void', index)
+    print Poem.limmerick('limeric', index)
 
 
