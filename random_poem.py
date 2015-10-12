@@ -611,14 +611,13 @@ class Poem(object):
         def generate_line(word_stresses, word_types, line_rhyme):
             words = list()
 
-            i = 0
             for i in range(len(word_stresses) - 1):
                 word = index.get_random_word(word_stresses[i], word_types[i])
                 if not word:
                     return None
                 words.append(word)
 
-            word = index.get_random_word(word_stresses[i + 1], word_types[i + 1], line_rhyme)
+            word = index.get_random_word(word_stresses[-1], word_types[-1], line_rhyme)
             if not word:
                 return None
             words.append(word)
@@ -661,7 +660,6 @@ if __name__ == '__main__':
     # print facade
 
     # print PoemPatternLearner(index, open('poems.txt'))
-
 
     # import sys
     # if len(sys.argv) > 1:
