@@ -258,6 +258,99 @@ class PoetryIndex(object):
         wordcount = self.connection.execute('select count (*) from word').fetchone()[0]
         logging.info('re indexed %s words.', wordcount)
 
+    def enhance_stresses(self):
+        #prepare shadow table
+        self.connection.execute('''
+            create table if not exists e_word (
+                text text not null,
+                rhyme text not null,
+                stress text not null,
+                sound text not null,
+                complexity float not null,
+                type text not null
+            )''')
+        self.connection.execute('create index if not exists e_word_text on e_word(text)')
+        self.connection.execute('create index if not exists e_word_rhyme on e_word(rhyme)')
+        self.connection.execute('create index if not exists e_word_stress on e_word(stress)')
+        self.connection.execute('create index if not exists e_word_complexity on e_word(complexity)')
+        self.connection.execute('create index if not exists e_word_type on e_word(type)')
+
+        words = self.connection.execute('select text, sound, stress, rhyme, complexity, type from word order by text')
+
+        current_text = None
+        sounds = list()
+        stresses = list()
+        rhymes = list()
+        complexities = list()
+        word_types = list()
+        count = 0
+
+        def enhance(count):
+            logging.debug('enhancing %s', current_text)
+            stress_lenghts = set(map(len, stresses))
+
+            # add all-stress variants for single-stress words
+            if 1 in stress_lenghts and '^' not in stresses:
+                for i in range(count):
+                    sounds.append(sounds[i])
+                    stresses.append('^')
+                    rhymes.append(rhymes[i])
+                    complexities.append(complexities[i])
+                    word_types.append(word_types[i])
+                    count += 1
+
+            # generate no-stress variants
+            no_stresses = map(lambda stress_length: '-'*stress_length, stress_lenghts)
+            for no_stress in no_stresses:
+                if no_stress not in stresses:
+                    for i in range(count):
+                        sounds.append(sounds[i])
+                        stresses.append(no_stress)
+                        rhymes.append(rhymes[i])
+                        complexities.append(complexities[i])
+                        word_types.append(word_types[i])
+                        count += 1
+
+            # write word back to db
+            def tupelize():
+                for i in range(count):
+                    logging.debug('%s', (current_text, sounds[i], stresses[i], rhymes[i], complexities[i], word_types[i]))
+                    yield (current_text, sounds[i], stresses[i], rhymes[i], .1*count + complexities[i], word_types[i])
+
+            self.connection.executemany('''
+               insert into e_word (text, sound, stress, rhyme, complexity, type) values (?, ?, ?, ?, ?, ?)
+            ''', tupelize())
+
+        for text, sound, stress, rhyme, complexity, word_type in words:
+            if not current_text:
+                current_text = text
+
+            if current_text != text:
+                enhance(count)
+
+                current_text = text
+                sounds = list()
+                stresses = list()
+                rhymes = list()
+                complexities = list()
+                word_types = list()
+                count = 0
+
+            sounds.append(sound)
+            stresses.append(stress)
+            rhymes.append(rhyme)
+            complexities.append(complexity)
+            word_types.append(word_type)
+            count += 1
+
+        enhance(count)
+        self.connection.commit()
+        logging.info('have %s enhanced index entries', self.connection.execute('select count (*) from e_word').fetchone()[0])
+        logging.info('switching to enchanced table...')
+        self.connection.execute('drop table word')
+        self.connection.execute('alter table e_word rename to word')
+        logging.info('done enhancing')
+
     def assemble_from_db(self, where_condition, params):
         rows = self.connection.execute(
             'select text, sound, stress, rhyme, complexity, type ' +
@@ -292,6 +385,32 @@ class PoetryIndex(object):
 
     def get_word_variants(self, text):
         return self.assemble_from_db('where text = ?', (text.lower(),))
+
+    def get_statistics(self, line_stress):
+        def splits(to_split, split_count):
+            if split_count == 1:
+                yield [to_split]
+            else:
+                for i in range(1, len(to_split)):
+                    for suffix in splits(to_split[i:], split_count - 1):
+                        yield [to_split[:i]] + list(suffix)
+
+        combination_counter = collections.Counter()
+
+        for prefix, suffix in splits(line_stress, 2):
+            for rhyme, last_word_count in self.connection.execute('select rhyme, count(*) from word where stress = ? group by rhyme', (suffix, )):
+                for split in splits(prefix, 1):
+                    split_count = last_word_count
+                    for split_part in split:
+                         split_count *= self.connection.execute('select count(*) from word where stress = ?', (split_part,)).fetchone()[0]
+                    combination_counter[rhyme] += split_count
+
+        for rhyme, count in combination_counter.most_common(10):
+            print count, rhyme
+
+    def __repr__(self):
+        return 'poetry index with {} indexed entries ({} distinct words)\n'.format(
+            *self.connection.execute('select count (*), count (distinct text) from word').fetchone())
 
 class PoemPatternLearner(object):
     def __init__(self, index, text):
@@ -584,12 +703,12 @@ class Poem(object):
         return cls(index,
             'A -^--^--^ 3:6\n' +
             'A -^--^--^ 3:6\n' +
-            'B -^--^- 2:4\n' +
-            'B -^--^- 2:4\n' +
+            'B -^--^- 1:3\n' +
+            'B -^--^- 1:3\n' +
             'A -^--^--^ 3:6\n'
         )
 
-    def __init__(self, index, pattern='A -^--^--^--^ 2:8\nB -^--^--^ 1:3\nA -^--^--^--^ 2:8\nB -^--^--^ 1:3\n', tries_per_line=50):
+    def __init__(self, index, pattern='A -^--^--^--^ 2:5\nB -^--^--^ 1:3\nA -^--^--^--^ 2:5\nB -^--^--^ 1:3\n', tries_per_line=50):
         self.pattern = pattern
         self.lines = ''
         self.stresses = ''
@@ -656,6 +775,20 @@ if __name__ == '__main__':
 
     # facade = WictionaryFacade()
     index = PoetryIndex()
+
+    index.get_statistics('--^--^--^')
+    index.get_statistics('^-^-^-^-^')
+
+    # print Poem(index)
+    # print
+    # print Poem(index)
+    # print
+    # print Poem(index)
+
+    print index
+
+    # index.enhance_stresses()
+
     # index.load_words(Word.from_file(Phones.from_file(), facade))
     # print facade
 
@@ -671,12 +804,3 @@ if __name__ == '__main__':
 
     # index = PoetryIndex()
     # index.re_load_words(Word.from_file(Phones.from_file()))
-
-    print Poem.limmerick(index)
-    print
-    print
-    print Poem(index)
-    print
-    print Poem(index)
-    print
-    print Poem(index)
