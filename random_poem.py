@@ -386,28 +386,6 @@ class PoetryIndex(object):
     def get_word_variants(self, text):
         return self.assemble_from_db('where text = ?', (text.lower(),))
 
-    def get_statistics(self, line_stress):
-        def splits(to_split, split_count):
-            if split_count == 1:
-                yield [to_split]
-            else:
-                for i in range(1, len(to_split)):
-                    for suffix in splits(to_split[i:], split_count - 1):
-                        yield [to_split[:i]] + list(suffix)
-
-        combination_counter = collections.Counter()
-
-        for prefix, suffix in splits(line_stress, 2):
-            for rhyme, last_word_count in self.connection.execute('select rhyme, count(*) from word where stress = ? group by rhyme', (suffix, )):
-                for split in splits(prefix, 1):
-                    split_count = last_word_count
-                    for split_part in split:
-                         split_count *= self.connection.execute('select count(*) from word where stress = ?', (split_part,)).fetchone()[0]
-                    combination_counter[rhyme] += split_count
-
-        for rhyme, count in combination_counter.most_common(10):
-            print count, rhyme
-
     def __repr__(self):
         return 'poetry index with {} indexed entries ({} distinct words)\n'.format(
             *self.connection.execute('select count (*), count (distinct text) from word').fetchone())
