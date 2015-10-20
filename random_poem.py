@@ -1,8 +1,6 @@
 import logging
 import collections
 import random
-import socket
-import time
 import sqlite3
 import urllib2
 import json
@@ -371,7 +369,7 @@ class PoetryIndex(object):
                     word.types.append(row[5])
             yield word
 
-    def get_random_word(self, stress, word_type=None, rhyme=None):
+    def get_words(self, stress, word_type=None, rhyme=None):
         if not word_type and not rhyme:
             words = self.assemble_from_db('where stress = ?', (stress,))
         elif not word_type:
@@ -381,10 +379,24 @@ class PoetryIndex(object):
         else:
             words = self.assemble_from_db('where stress = ? and rhyme = ? and type = ?', (stress, rhyme, word_type))
 
-        return Word.choice(words)
+        return words
+
+    def get_word_count(self, stress, rhyme=None):
+        if rhyme:
+            query_n_param = ('select count (distinct text) from word where stress = ? and rhyme = ?', (stress, rhyme))
+        else:
+            query_n_param = ('select count (distinct text) from word where stress = ?', (stress,))
+
+        logging.debug('querying : %s', query_n_param)
+        row = self.connection.execute(*query_n_param).fetchone()
+        return row[0]
 
     def get_word_variants(self, text):
         return self.assemble_from_db('where text = ?', (text.lower(),))
+
+    def known_rhyme_types(self):
+        for row in self.connection.execute('select distinct rhyme from word'):
+            yield row[0]
 
     def __repr__(self):
         return 'poetry index with {} indexed entries ({} distinct words)\n'.format(
@@ -709,12 +721,12 @@ class Poem(object):
             words = list()
 
             for i in range(len(word_stresses) - 1):
-                word = index.get_random_word(word_stresses[i], word_types[i])
+                word = Word.choice(index.get_words(word_stresses[i], word_types[i]))
                 if not word:
                     return None
                 words.append(word)
 
-            word = index.get_random_word(word_stresses[-1], word_types[-1], line_rhyme)
+            word = Word.choice(index.get_words(word_stresses[-1], word_types[-1], line_rhyme))
             if not word:
                 return None
             words.append(word)
@@ -754,31 +766,10 @@ if __name__ == '__main__':
     # facade = WictionaryFacade()
     index = PoetryIndex()
 
-    index.get_statistics('--^--^--^')
-    index.get_statistics('^-^-^-^-^')
-
-    # print Poem(index)
-    # print
-    # print Poem(index)
-    # print
-    # print Poem(index)
-
-    print index
-
-    # index.enhance_stresses()
-
-    # index.load_words(Word.from_file(Phones.from_file(), facade))
-    # print facade
-
-    # print PoemPatternLearner(index, open('poems.txt'))
-
-    # import sys
-    # if len(sys.argv) > 1:
-    #     base_path = sys.argv[1]
-    #     index = InMemoryPoetryIndex(Word.from_file(Phones.from_file(base_path+'/cmudict.phones'), base_path+'/cmudict.dict'))
-    # else:
-    #     # default location: cmudict next to epoet
-    #     index = InMemoryPoetryIndex(Word.from_file(Phones.from_file()))
-
-    # index = PoetryIndex()
-    # index.re_load_words(Word.from_file(Phones.from_file()))
+    print Poem(index, 'a --^ 3:3\n'*4)
+    print
+    print Poem(index, 'a --^ 3:3\n'*4)
+    print
+    print Poem(index, 'a --^--^ 3:3\n'*3)
+    print
+    print Poem(index, 'a --^--^ 3:3\n'*3)
