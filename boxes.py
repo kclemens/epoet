@@ -1,9 +1,9 @@
-import sqlite3
 import math
 import logging
 import random
 import json
 import gzip
+
 
 class Box(object):
     def __init__(self, min_x=-180.0, min_y=-90.0, max_x=180.0, max_y=90.0):
@@ -138,47 +138,10 @@ class BoxIndex(object):
         data = json.load(gzip.open(file_name))
         return cls(data['options'], data['iterations'], Box(data['box']['min_x'], data['box']['min_y'], data['box']['max_x'], data['box']['max_y']))
 
-
-class GeoPoet(object):
-    def __init__(self, dbname='words.sqlite3db', line_pattern=list(['-^-', '^-^-']), rhyme='EY:fricative:AH:nasal'):
-        self.connection = sqlite3.connect(dbname)
-        self.line_pattern = line_pattern
-        self.rhyme = rhyme
-
-    def generate_line_options(self):
-        line_options = list()
-
-        # collect words
-        for word_stress in self.line_pattern[:-1]:
-            words = self.connection.execute('select distinct text from word where stress = ?', (word_stress,))
-            words = set(map(lambda row: row[0], words))
-            line_options.append(words)
-
-        words = self.connection.execute('select distinct text from word where stress = ? and rhyme = ?', (self.line_pattern[-1], self.rhyme))
-        words = set(map(lambda row: row[0], words))
-
-        # remove rhyme words from all other options (rhymes are rare!)
-        for options in line_options:
-            options -= words
-        line_options.append(words)
-
-        for word in reduce(lambda a, b: a | b, line_options[:-1], set()):
-            options_with_words = list(filter(lambda options: word in options, line_options))
-            if len(options_with_words) > 1:
-                retain_index = random.randint(0, len(options_with_words) - 1)
-                for i, options in enumerate(options_with_words[:-1]):
-                    if i != retain_index:
-                        options.remove(word)
-
-        line_options = map(list, line_options)
-        for options in line_options:
-            random.shuffle(options)
-
-        return line_options
-
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)7s - %(message)s')
 
+    # from random_poem import GeoPoet
     # BoxIndex(GeoPoet().generate_line_options()).to_file()
     # BoxIndex(GeoPoet(line_pattern=['^-^', '-^-'], rhyme='EY:fricative:AH:nasal').generate_line_options(), 2).to_file()
     # BoxIndex(GeoPoet(line_pattern=['^-', '-^-', '-^--'], rhyme='AA:liquid:AH:affricate:IY').generate_line_options(), 2).to_file()

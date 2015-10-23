@@ -760,6 +760,43 @@ class Poem(object):
     def __repr__(self):
         return self.lines
 
+class GeoPoet(object):
+    def __init__(self, dbname='words.sqlite3db', line_pattern=list(['-^-', '^-^-']), rhyme='EY:fricative:AH:nasal'):
+        self.connection = sqlite3.connect(dbname)
+        self.line_pattern = line_pattern
+        self.rhyme = rhyme
+
+    def generate_line_options(self):
+        line_options = list()
+
+        # collect words
+        for word_stress in self.line_pattern[:-1]:
+            words = self.connection.execute('select distinct text from word where stress = ?', (word_stress,))
+            words = set(map(lambda row: row[0], words))
+            line_options.append(words)
+
+        words = self.connection.execute('select distinct text from word where stress = ? and rhyme = ?', (self.line_pattern[-1], self.rhyme))
+        words = set(map(lambda row: row[0], words))
+
+        # remove rhyme words from all other options (rhymes are rare!)
+        for options in line_options:
+            options -= words
+        line_options.append(words)
+
+        for word in reduce(lambda a, b: a | b, line_options[:-1], set()):
+            options_with_words = list(filter(lambda options: word in options, line_options))
+            if len(options_with_words) > 1:
+                retain_index = random.randint(0, len(options_with_words) - 1)
+                for i, options in enumerate(options_with_words[:-1]):
+                    if i != retain_index:
+                        options.remove(word)
+
+        line_options = map(list, line_options)
+        for options in line_options:
+            random.shuffle(options)
+
+        return line_options
+
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)7s - %(message)s')
 
