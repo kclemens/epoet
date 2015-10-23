@@ -765,11 +765,12 @@ if __name__ == '__main__':
 
     # facade = WictionaryFacade()
     index = PoetryIndex()
+    print Poem.limmerick(index)
 
-    print Poem(index, 'a --^ 3:3\n'*4)
-    print
-    print Poem(index, 'a --^ 3:3\n'*4)
-    print
-    print Poem(index, 'a --^--^ 3:3\n'*3)
-    print
-    print Poem(index, 'a --^--^ 3:3\n'*3)
+    # print Poem(index, 'a --^ 3:3\n'*4)
+    # print
+    # print Poem(index, 'a --^ 3:3\n'*4)
+    # print
+    # print Poem(index, 'a --^--^ 3:3\n'*3)
+    # print
+    # print Poem(index, 'a --^--^ 3:3\n'*3)
