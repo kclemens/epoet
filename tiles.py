@@ -59,11 +59,16 @@ class Box(object):
             y_width * (y + 1) + self.min_y
         )
 
+    def centroid(self):
+        center_x = self.min_x + ((self.max_x - self.min_x) / 2.0)
+        center_y = self.min_y + ((self.max_y - self.min_y) / 2.0)
+        return center_x, center_y
+
 class BoxIndex(object):
     def __init__(self, options, iterations=2, outer_box=Box()):
         def reduce_to_quad_length(collection):
             collection = list(collection)
-            max_count = int(math.pow(math.floor(math.sqrt(len(collection) - iterations)), 2))
+            max_count = int(math.pow(math.floor(math.sqrt(len(collection))), 2))
             return collection[:max_count]
 
         self.line_term_options = map(reduce_to_quad_length, options)
@@ -75,13 +80,16 @@ class BoxIndex(object):
         inner_box_count = reduce(lambda x,y: x * y, inner_box_count, 1)
         inner_box_count = math.pow(inner_box_count, iterations)
         inner_box_count = math.sqrt(inner_box_count)
+        inner_width, inner_height = outer_width / inner_box_count, outer_height / inner_box_count
         # inner box count:
         # product of possible options for every term on a line
         # to the power of lines (iterations) specified
         # square root to get the number of boxes on a line
 
+        self.accuracy = math.sqrt(inner_width * inner_width + inner_height * inner_height) / 2
+
         logging.info('configured a box index for %s', self.outer_box)
-        logging.info('with %.2fm * %.2fm max tile size', outer_width / inner_box_count, outer_height / inner_box_count)
+        logging.info('with %.2fm * %.2fm max tile size (%.2fm accuracy)', inner_width, inner_height, self.accuracy)
 
     def to_box_name(self, lat, lon):
         box = self.outer_box
@@ -172,12 +180,19 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)7s - %(message)s')
 
     # BoxIndex(GeoPoet().generate_line_options()).to_file()
-    # BoxIndex(GeoPoet(line_pattern=['-^-', '^-^', '-^-'], rhyme='EY:fricative:AH:nasal').generate_line_options(), 2).to_file()
+    # BoxIndex(GeoPoet(line_pattern=['^-^', '-^-'], rhyme='EY:fricative:AH:nasal').generate_line_options(), 2).to_file()
     # BoxIndex(GeoPoet(line_pattern=['^-', '-^-', '-^--'], rhyme='AA:liquid:AH:affricate:IY').generate_line_options(), 2).to_file()
     # BoxIndex(GeoPoet(line_pattern=['^--^-', '^--^-', '^--^-'], rhyme='EY:fricative:AH:nasal').generate_line_options(), 2).to_file()
 
-    index = BoxIndex.from_file()
+    latlons = [(52.5292, 13.3882), (52.4957, 13.3634), (52.5129, 13.3201)]
+    indices = [BoxIndex.from_file('rhyme_box_index.json.gz'), BoxIndex.from_file('syllables_box_index.json.gz')]
 
-    print 53, 14
-    print index.to_box_name(53, 14)
-    print index.from_box_name(index.to_box_name(53, 14))
+    for i, index in enumerate(indices, 1):
+        print 'using box index {}'.format(i)
+        for lat, lon in latlons:
+            print 'encoding {},{}'.format(lat, lon)
+            tokens = index.to_box_name(lat, lon)
+            for i in range(len(tokens), 0 , -1):
+                r_lat, r_lon = index.from_box_name(tokens[:i]).centroid()
+                print '"{}" resolves back to {},{}'.format(' '.join(tokens[:i]), r_lat, r_lon)
+
