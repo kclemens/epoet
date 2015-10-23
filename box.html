@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html style="width: 100%; height: 100%; margin: 0px; padding: 0px;">
+<head>
+  <script type="text/javascript" charset="UTF-8"    src="http://js.api.here.com/v3/3.0/mapsjs-core.js"></script>
+  <script type="text/javascript" charset="UTF-8"    src="http://js.api.here.com/v3/3.0/mapsjs-service.js"></script>
+  <script type="text/javascript" charset="UTF-8"    src="http://js.api.here.com/v3/3.0/mapsjs-mapevents.js"></script>
+  <script type="text/javascript"  charset="UTF-8"    src="http://js.api.here.com/v3/3.0/mapsjs-ui.js"></script>
+  <title>tile namer</title>
+</head>
+<body style="width: 100%; height: 100%; margin: 0px; padding: 0px;">
+  <div id="map" style="width: 100%; height: 100%; margin: 0px; padding: 0px;" />
+  <div style="background-color: rgba(155, 155, 155, 0.4); z-index: 1; position: absolute; margin-left: 40%; width: 20%; text-align: center;">
+  <div><input style="text-align:center" size="45" type="text" id="geoname" onkeydown="if (event.keyCode == 13) from_name()"/></div>
+  <div><input style="text-align:center" size="45" type="text" id="coords" onkeydown="if (event.keyCode == 13) from_lat_lon()"/>
+  <div>
+      rhyme<input type="radio" name="text_type" id="rhyme" checked="checked">
+      <input type="radio" name="text_type" value="syllables" id="syllables"/>syllables
+  </div>
+  </div>
+  </div>
+  <script  type="text/javascript" charset="UTF-8" >
+
+function from_click(lat, lon) {
+  document.getElementById("coords").value = lat + "," + lon;
+  from_lat_lon()
+}
+
+function from_name() {
+  if (document.getElementById("rhyme").checked) {
+    get_and_draw_tile("/rhyme?name=" + document.getElementById("geoname").value)
+  } else {
+    get_and_draw_tile("/syllables?name=" + document.getElementById("geoname").value)
+  }
+}
+
+function from_lat_lon() {
+  latlon = document.getElementById("coords").value.split(',')
+  lat = latlon[0]
+  lon = latlon[1]
+  map.setCenter({lat:lat, lng:lon});
+  if (document.getElementById("rhyme").checked) {
+    get_and_draw_tile("/rhyme?lat=" + lat + "&lon=" + lon)
+  } else {
+    get_and_draw_tile("/syllables?lat=" + lat + "&lon=" + lon)
+  }
+}
+
+function get_and_draw_tile(path) {
+  var xmlhttp = new XMLHttpRequest();
+  xmlhttp.onreadystatechange = function() {
+    if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+      tile = JSON.parse(xmlhttp.responseText);
+      document.getElementById("geoname").value = tile.name
+      document.getElementById("coords").value = tile.lat + "," + tile.lon
+      draw_tile(tile)
+    }
+  }
+  xmlhttp.open("GET", path, true);
+  xmlhttp.send();
+}
+
+var objects_on_map = []
+function draw_tile(tile) {
+  // delete what's on the map
+  map.removeObjects(objects_on_map)
+  objects_on_map = []
+  bbox = new H.geo.Rect(tile.top, tile.left, tile.bottom, tile.right)
+  rect = new H.map.Rect(bbox, {
+      style: {strokeColor: '#E8FA75',lineWidth: 1}
+  })
+  objects_on_map.push(rect)
+  map.addObject(rect)
+}
+
+
+
+
+//initialize communication with the platform
+var platform = new H.service.Platform({
+  app_id: 'DemoAppId01082013GAL',
+  app_code: 'AJKnXv84fjrb0KIHawS0Tg',
+  useCIT: true
+});
+var defaultLayers = platform.createDefaultLayers();
+
+//initialize a map - this map is centered over Berlin
+var map = new H.Map(document.getElementById('map'),
+  defaultLayers.normal.map,{
+  center: {lat:52.5159, lng:13.3777},
+  zoom: 36
+});
+
+//add event listener to map to get coordinates
+map.addEventListener('tap', function(evt) {
+    var coords =  map.screenToGeo(evt.currentPointer.viewportX, evt.currentPointer.viewportY);
+    from_click(coords.lat, coords.lng)
+});
+
+//make the map interactive
+// MapEvents enables the event system
+// Behavior implements default interactions for pan/zoom (also on mobile touch environments)
+var behavior = new H.mapevents.Behavior(new H.mapevents.MapEvents(map));
+
+  </script>
+</body>
+</html>
