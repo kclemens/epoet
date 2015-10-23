@@ -771,11 +771,11 @@ class GeoPoet(object):
 
         # collect words
         for word_stress in self.line_pattern[:-1]:
-            words = self.connection.execute('select distinct text from word where stress = ?', (word_stress,))
+            words = self.connection.execute('select distinct text from word where stress = ? and type <> "other"', (word_stress,))
             words = set(map(lambda row: row[0], words))
             line_options.append(words)
 
-        words = self.connection.execute('select distinct text from word where stress = ? and rhyme = ?', (self.line_pattern[-1], self.rhyme))
+        words = self.connection.execute('select distinct text from word where stress = ? and rhyme = ? and type <> "other"', (self.line_pattern[-1], self.rhyme))
         words = set(map(lambda row: row[0], words))
 
         # remove rhyme words from all other options (rhymes are rare!)

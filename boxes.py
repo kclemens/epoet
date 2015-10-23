@@ -155,7 +155,7 @@ if __name__ == '__main__':
         for lat, lon in latlons:
             print 'encoding {},{}'.format(lat, lon)
             tokens = index.to_box_name(lat, lon)
-            for i in range(len(tokens), 0 , -1):
+            for i in range(len(tokens), 0, -1):
                 r_lat, r_lon = index.from_box_name(tokens[:i]).centroid()
                 print '"{}" resolves back to {},{}'.format(' '.join(tokens[:i]), r_lat, r_lon)
 
