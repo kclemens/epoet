@@ -1,6 +1,5 @@
 import webapp2
 import boxes
-import logging
 
 
 class MainPage(webapp2.RequestHandler):
@@ -19,18 +18,24 @@ class AbstractService(webapp2.RequestHandler):
             if lat and lon:
                 name = self.rhyme_index.to_box_name(float(lat), float(lon))
 
-            box = self.rhyme_index.from_box_name(name)
+            try:
+                box = self.rhyme_index.from_box_name(name)
+            except ValueError:
+                self.response.headers['Content-Type'] = 'text/plain'
+                self.response.write('you have specified an invalid box name: {}'.format(name))
+                self.response.set_status(400)
+                return
+
             lat, lon = box.centroid()
 
             self.response.headers['Content-Type'] = 'application/json'
-            self.response.write('{{"name":"{}","lat":{}, "lon":{}, "top":{}, "left":{},"bottom":{},"right":{}}}'.format(
-                ' '.join(name), lat, lon, box.max_x, box.min_y, box.min_x, box.max_y))
+            self.response.write('{{"name":"{}","lat":{:f}, "lon":{:f}, "top":{:f}, "left":{:f},"bottom":{:f},"right":{:f}}}'.format(
+                ' '.join(name), lat, lon, box.max_lat, box.min_lon, box.min_lat, box.max_lon))
 
         else:
             self.response.headers['Content-Type'] = 'text/plain'
-            self.response.write('you need to specify lat and lon or name parameters'.format(lat, lon))
+            self.response.write('you need to specify lat and lon or name parameters')
             self.response.set_status(400)
-
 
 class RhymeService(AbstractService):
     rhyme_index = boxes.BoxIndex.from_file('rhyme_box_index.json.gz')

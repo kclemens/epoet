@@ -6,36 +6,38 @@ import gzip
 
 
 class Box(object):
-    def __init__(self, min_x=-180.0, min_y=-90.0, max_x=180.0, max_y=90.0):
-        self.max_y = max_y
-        self.max_x = max_x
-        self.min_y = min_y
-        self.min_x = min_x
+    def __init__(self, min_lon=-180.0, min_lat=-90.0, max_lon=180.0, max_lat=90.0):
+        self.max_lon = max_lon
+        self.max_lat = max_lat
+        self.min_lon = min_lon
+        self.min_lat = min_lat
 
     def __repr__(self):
-        return 'Box {},{}  {},{}'.format(self.min_x, self.min_y, self.max_x, self.max_y)
-        # return 'http://maps.google.com/maps/api/staticmap?size=500x300&sensor=false&path=color:0x00000000|weight:5|fillcolor:0xFFFF0033|{},{}|{},{}|{},{}|{},{}'.format(
-        #     self.min_x, self.min_y,
-        #     self.max_x, self.min_y,
-        #     self.max_x, self.max_y,
-        #     self.min_x, self.max_y,
-        # )
+        return 'Box {},{}  {},{}'.format(self.min_lat, self.min_lon, self.max_lat, self.max_lon)
+
+    def to_static_view(self):
+        return 'http://maps.google.com/maps/api/staticmap?size=500x300&sensor=false&path=color:0x00000000|weight:5|fillcolor:0xFFFF0033|{},{}|{},{}|{},{}|{},{}'.format(
+            self.min_lat, self.min_lon,
+            self.max_lat, self.min_lon,
+            self.max_lat, self.max_lon,
+            self.min_lat, self.max_lon,
+        )
 
     def width_and_height_in_m(self):
-        width = (self.max_x - self.min_x) * (40075000/ 360.0)
-        height = (self.max_y - self.min_y) * (20005000 / 180.0)
+        height = (self.max_lat - self.min_lat) * (20005000 / 180.0)
+        width = (self.max_lon - self.min_lon) * (40075000/ 360.0)
 
         return width, height
 
-    def sub_box_index(self, x, y, box_count):
+    def sub_box_index(self, lat, lon, box_count):
         q = math.sqrt(box_count)
 
         assert q == math.floor(q)
-        assert self.min_x <= x < self.max_x
-        assert self.min_y <= y < self.max_y
+        assert self.min_lat <= lat < self.max_lat
+        assert self.min_lon <= lon < self.max_lon
 
-        ix = math.floor((q * (x - self.min_x)) / (self.max_x - self.min_x))
-        iy = math.floor((q * (y - self.min_y)) / (self.max_y - self.min_y))
+        ix = math.floor((q * (lat - self.min_lat)) / (self.max_lat - self.min_lat))
+        iy = math.floor((q * (lon - self.min_lon)) / (self.max_lon - self.min_lon))
 
         return int(q*ix + iy)
 
@@ -44,25 +46,25 @@ class Box(object):
 
         assert q == math.floor(q)
 
-        x = math.floor(box_index / q)
-        y = box_index - x * q
+        ix = math.floor(box_index / q)
+        iy = box_index - ix * q
 
-        assert x < q and y < q
+        assert ix < q and iy < q
 
-        x_width = (self.max_x - self.min_x) / q
-        y_width = (self.max_y - self.min_y) / q
+        x_width = (self.max_lat - self.min_lat) / q
+        y_width = (self.max_lon - self.min_lon) / q
 
         return Box(
-            x_width * x + self.min_x,
-            y_width * y + self.min_y,
-            x_width * (x + 1) + self.min_x,
-            y_width * (y + 1) + self.min_y
+            self.min_lon + y_width * iy,
+            self.min_lat + x_width * ix,
+            self.min_lon + y_width * (iy + 1),
+            self.min_lat + x_width * (ix + 1)
         )
 
     def centroid(self):
-        center_x = self.min_x + ((self.max_x - self.min_x) / 2.0)
-        center_y = self.min_y + ((self.max_y - self.min_y) / 2.0)
-        return center_x, center_y
+        center_lat = self.min_lat + ((self.max_lat - self.min_lat) / 2.0)
+        center_on = self.min_lon + ((self.max_lon - self.min_lon) / 2.0)
+        return center_lat, center_on
 
 class BoxIndex(object):
     def __init__(self, options, iterations=2, outer_box=Box()):
@@ -125,10 +127,10 @@ class BoxIndex(object):
         return box
 
     def to_file(self, file_name='box_index.json.gz'):
-        obj = {'box': {'min_x': self.outer_box.min_x,
-                       'min_y': self.outer_box.min_y,
-                       'max_x': self.outer_box.max_x,
-                       'max_y': self.outer_box.max_y},
+        obj = {'box': {'min_x': self.outer_box.min_lat,
+                       'min_y': self.outer_box.min_lon,
+                       'max_x': self.outer_box.max_lat,
+                       'max_y': self.outer_box.max_lon},
                'iterations': self.iterations,
                'options': self.line_term_options}
         json.dump(obj, gzip.open(file_name, 'wb'))
